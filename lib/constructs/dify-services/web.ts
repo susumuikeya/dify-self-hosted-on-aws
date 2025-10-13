@@ -94,7 +94,10 @@ export class WebService extends Construct {
         },
       ],
       enableExecuteCommand: true,
-      minHealthyPercent: 100,
+      desiredCount: 2,
+      circuitBreaker: { rollback: true },
+      minHealthyPercent: 50,
+      maxHealthyPercent: 150,
     });
 
     alb.addEcsService('Web', service, port, '/', ['/*']);
