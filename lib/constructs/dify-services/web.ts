@@ -1,10 +1,11 @@
 import { CpuArchitecture, FargateTaskDefinition, ICluster } from 'aws-cdk-lib/aws-ecs';
 import { Construct } from 'constructs';
-import { Duration, aws_ecs as ecs } from 'aws-cdk-lib';
+import { Duration, RemovalPolicy, aws_ecs as ecs } from 'aws-cdk-lib';
 import { IAlb } from '../alb';
 import { IRepository } from 'aws-cdk-lib/aws-ecr';
 import { EnvironmentProps } from '../../environment-props';
 import { getAdditionalEnvironmentVariables, getAdditionalSecretVariables } from './environment-variables';
+import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 
 export interface WebServiceProps {
   cluster: ICluster;
@@ -21,16 +22,25 @@ export interface WebServiceProps {
 
   additionalEnvironmentVariables: EnvironmentProps['additionalEnvironmentVariables'];
   useFargateSpot: boolean;
+  resourceNamePrefix: string;
 }
 
 export class WebService extends Construct {
   constructor(scope: Construct, id: string, props: WebServiceProps) {
     super(scope, id);
 
-    const { cluster, alb, debug = false, customRepository } = props;
+    const { cluster, alb, debug = false, customRepository, resourceNamePrefix } = props;
     const port = 3000;
+    const taskFamily = `${resourceNamePrefix}-web`.slice(0, 255);
+    const serviceName = `${resourceNamePrefix}-web`.slice(0, 255);
+    const logGroup = new LogGroup(this, 'LogGroup', {
+      logGroupName: `/aws/ecs/${resourceNamePrefix}-web`,
+      retention: RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
 
     const taskDefinition = new FargateTaskDefinition(this, 'Task', {
+      family: taskFamily,
       cpu: 256,
       memoryLimitMiB: 512,
       runtimePlatform: { cpuArchitecture: CpuArchitecture.X86_64 },
@@ -67,7 +77,8 @@ export class WebService extends Construct {
         ...getAdditionalSecretVariables(this, 'web', props.additionalEnvironmentVariables),
       },
       logging: ecs.LogDriver.awsLogs({
-        streamPrefix: 'log',
+        streamPrefix: 'main',
+        logGroup,
       }),
       portMappings: [{ containerPort: port }],
       healthCheck: {
@@ -82,6 +93,7 @@ export class WebService extends Construct {
 
     const service = new ecs.FargateService(this, 'FargateService', {
       cluster,
+      serviceName,
       taskDefinition,
       capacityProviderStrategies: [
         {

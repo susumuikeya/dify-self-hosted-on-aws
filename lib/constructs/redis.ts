@@ -1,4 +1,5 @@
 import { Construct } from 'constructs';
+import { RemovalPolicy } from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { CfnReplicationGroup, CfnSubnetGroup } from 'aws-cdk-lib/aws-elasticache';
 import { SecurityGroup } from 'aws-cdk-lib/aws-ec2';
@@ -8,6 +9,7 @@ import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 export interface RedisProps {
   vpc: ec2.IVpc;
   multiAz: boolean;
+  resourceNamePrefix: string;
 }
 
 export class Redis extends Construct implements ec2.IConnectable {
@@ -21,10 +23,14 @@ export class Redis extends Construct implements ec2.IConnectable {
     super(scope, id);
 
     const { vpc, multiAz } = props;
+    const subnetGroupName = `${props.resourceNamePrefix}-redis-subnets`.slice(0, 255).replace(/-+$/g, '');
+    const replicationGroupId = `${props.resourceNamePrefix}-redis`.slice(0, 40).replace(/-+$/g, '');
+    const secretName = `${props.resourceNamePrefix}/redis/auth`;
 
     const subnetGroup = new CfnSubnetGroup(this, 'SubnetGroup', {
       subnetIds: vpc.privateSubnets.concat(vpc.isolatedSubnets).map(({ subnetId }) => subnetId),
       description: 'Dify ElastiCache subnets',
+      cacheSubnetGroupName: subnetGroupName,
     });
 
     const securityGroup = new SecurityGroup(this, 'SecurityGroup', {
@@ -32,10 +38,12 @@ export class Redis extends Construct implements ec2.IConnectable {
     });
 
     const secret = new Secret(this, 'AuthToken', {
+      secretName,
       generateSecretString: {
         passwordLength: 30,
         excludePunctuation: true,
       },
+      removalPolicy: RemovalPolicy.DESTROY,
     });
 
     const redis = new CfnReplicationGroup(this, 'Resource', {
@@ -54,6 +62,7 @@ export class Redis extends Construct implements ec2.IConnectable {
       transitEncryptionEnabled: true,
       atRestEncryptionEnabled: true,
       authToken: secret.secretValue.unsafeUnwrap(),
+      replicationGroupId,
     });
 
     this.endpoint = redis.attrPrimaryEndPointAddress;
@@ -61,7 +70,9 @@ export class Redis extends Construct implements ec2.IConnectable {
     this.brokerUrl = new StringParameter(this, 'BrokerUrl', {
       // Celery crashes when ssl_cert_reqs is not set
       stringValue: `rediss://:${secret.secretValue.unsafeUnwrap()}@${this.endpoint}:${this.port}/1?ssl_cert_reqs=optional`,
+      parameterName: `/dify/${props.resourceNamePrefix}/redis/broker-url`.replace(/\/{2,}/g, '/'),
     });
+    this.brokerUrl.applyRemovalPolicy(RemovalPolicy.DESTROY);
 
     this.connections = new ec2.Connections({ securityGroups: [securityGroup], defaultPort: ec2.Port.tcp(this.port) });
     this.secret = secret;

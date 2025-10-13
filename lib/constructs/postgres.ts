@@ -21,6 +21,11 @@ export interface PostgresProps {
    * If true, the minimum ACU for the Aurora Cluster is set to zero.
    */
   scalesToZero: boolean;
+
+  /**
+   * Prefix used to build stable resource identifiers per environment.
+   */
+  resourceNamePrefix: string;
 }
 
 export class Postgres extends Construct implements IConnectable {
@@ -40,6 +45,8 @@ export class Postgres extends Construct implements IConnectable {
     const engine = rds.DatabaseClusterEngine.auroraPostgres({
       version: rds.AuroraPostgresEngineVersion.VER_15_7,
     });
+    const clusterIdentifier = `${props.resourceNamePrefix}-aurora`.slice(0, 63).replace(/-+$/g, '');
+    const writerIdentifier = `${clusterIdentifier}-writer`.slice(0, 63).replace(/-+$/g, '');
 
     const cluster = new rds.DatabaseCluster(this, 'Cluster', {
       engine,
@@ -48,6 +55,7 @@ export class Postgres extends Construct implements IConnectable {
       serverlessV2MinCapacity: props.scalesToZero ? 0 : 1.0,
       serverlessV2MaxCapacity: 4.0,
       writer: rds.ClusterInstance.serverlessV2(this.writerId, {
+        instanceIdentifier: writerIdentifier,
         autoMinorVersionUpgrade: true,
         publiclyAccessible: false,
       }),
@@ -63,6 +71,7 @@ export class Postgres extends Construct implements IConnectable {
         },
       }),
       vpcSubnets: vpc.selectSubnets({ subnets: vpc.privateSubnets.concat(vpc.isolatedSubnets) }),
+      clusterIdentifier,
     });
 
     if (props.createBastion) {

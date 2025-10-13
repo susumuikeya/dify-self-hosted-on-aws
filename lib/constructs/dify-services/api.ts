@@ -1,6 +1,6 @@
 import { CpuArchitecture, FargateTaskDefinition, ICluster } from 'aws-cdk-lib/aws-ecs';
 import { Construct } from 'constructs';
-import { CfnOutput, Duration, Stack, aws_ecs as ecs } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy, Stack, aws_ecs as ecs } from 'aws-cdk-lib';
 import { Platform } from 'aws-cdk-lib/aws-ecr-assets';
 import { AccessKey, ManagedPolicy, PolicyStatement, User } from 'aws-cdk-lib/aws-iam';
 import { Postgres } from '../postgres';
@@ -14,6 +14,7 @@ import { getAdditionalEnvironmentVariables, getAdditionalSecretVariables } from 
 import { EnvironmentProps } from '../../environment-props';
 import { EmailService } from '../email';
 import { AwsCustomResource, AwsCustomResourcePolicy, PhysicalResourceId } from 'aws-cdk-lib/custom-resources';
+import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 
 export interface ApiServiceProps {
   cluster: ICluster;
@@ -41,18 +42,28 @@ export interface ApiServiceProps {
 
   autoMigration: boolean;
   useFargateSpot: boolean;
+  resourceNamePrefix: string;
 }
 
 export class ApiService extends Construct {
   constructor(scope: Construct, id: string, props: ApiServiceProps) {
     super(scope, id);
 
-    const { cluster, alb, postgres, redis, storageBucket, email, debug = false, customRepository } = props;
+    const { cluster, alb, postgres, redis, storageBucket, email, debug = false, customRepository, resourceNamePrefix } =
+      props;
     const port = 5001;
     const pluginDaemonPort = 5002;
     const volumeName = 'sandbox';
+    const taskFamily = `${resourceNamePrefix}-api`.slice(0, 255);
+    const serviceName = `${resourceNamePrefix}-api`.slice(0, 255);
+    const logGroup = new LogGroup(this, 'LogGroup', {
+      logGroupName: `/aws/ecs/${resourceNamePrefix}-api`,
+      retention: RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
 
     const taskDefinition = new FargateTaskDefinition(this, 'Task', {
+      family: taskFamily,
       cpu: 2048,
       memoryLimitMiB: 4096, // 4 GiB keeps sandbox + worker steady for ~30 active users
       runtimePlatform: { cpuArchitecture: CpuArchitecture.X86_64 },
@@ -145,7 +156,8 @@ export class ApiService extends Construct {
         ...getAdditionalEnvironmentVariables(this, 'api', props.additionalEnvironmentVariables),
       },
       logging: ecs.LogDriver.awsLogs({
-        streamPrefix: 'log',
+        streamPrefix: 'main',
+        logGroup,
       }),
       portMappings: [{ containerPort: port }],
       secrets: {
@@ -238,7 +250,8 @@ export class ApiService extends Construct {
         ...getAdditionalEnvironmentVariables(this, 'worker', props.additionalEnvironmentVariables),
       },
       logging: ecs.LogDriver.awsLogs({
-        streamPrefix: 'log',
+        streamPrefix: 'worker',
+        logGroup,
       }),
       secrets: {
         DB_USERNAME: ecs.Secret.fromSecretsManager(postgres.secret, 'username'),
@@ -293,7 +306,8 @@ export class ApiService extends Construct {
         ...getAdditionalEnvironmentVariables(this, 'sandbox', props.additionalEnvironmentVariables),
       },
       logging: ecs.LogDriver.awsLogs({
-        streamPrefix: 'log',
+        streamPrefix: 'sandbox',
+        logGroup,
       }),
       portMappings: [{ containerPort: 8194 }],
       secrets: {
@@ -375,7 +389,8 @@ export class ApiService extends Construct {
         SERVER_KEY: ecs.Secret.fromSecretsManager(encryptionSecret), // is it ok to reuse this?
       },
       logging: ecs.LogDriver.awsLogs({
-        streamPrefix: 'log',
+        streamPrefix: 'plugin-daemon',
+        logGroup,
       }),
       portMappings: [{ containerPort: pluginDaemonPort }, { containerPort: 5003 }],
     });
@@ -392,7 +407,8 @@ export class ApiService extends Construct {
         BEDROCK_REGION: 'us-west-2',
       },
       logging: ecs.LogDriver.awsLogs({
-        streamPrefix: 'log',
+        streamPrefix: 'external',
+        logGroup,
       }),
       portMappings: [{ containerPort: 8000 }],
     });
@@ -414,6 +430,7 @@ export class ApiService extends Construct {
 
     const service = new ecs.FargateService(this, 'FargateService', {
       cluster,
+      serviceName,
       taskDefinition,
       capacityProviderStrategies: [
         {
@@ -455,7 +472,7 @@ export class ApiService extends Construct {
           Key: 'plugins',
           Body: 'placeholder. see https://github.com/langgenius/dify-plugin-daemon/issues/35',
         },
-        physicalResourceId: PhysicalResourceId.of('id'),
+        physicalResourceId: PhysicalResourceId.of(`${resourceNamePrefix}-plugins-placeholder`),
       },
       policy: AwsCustomResourcePolicy.fromSdkCalls({
         resources: [storageBucket.bucketArn, storageBucket.arnForObjects('*')],

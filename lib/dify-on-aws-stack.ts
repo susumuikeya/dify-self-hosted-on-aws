@@ -21,6 +21,7 @@ import { EmailService } from './constructs/email';
 export interface DifyOnAwsStackProps extends cdk.StackProps, Omit<EnvironmentProps, 'awsRegion' | 'awsAccount'> {
   readonly cloudFrontWebAclArn?: string;
   readonly cloudFrontCertificate?: ICertificate;
+  readonly environmentName?: string;
 }
 
 export class DifyOnAwsStack extends cdk.Stack {
@@ -36,7 +37,33 @@ export class DifyOnAwsStack extends cdk.Stack {
       internalAlb = false,
       useFargateSpot = false,
       subDomain = 'dify',
+      environmentName: environmentNameInput = 'dev',
     } = props;
+
+    const sanitize = (value: string) =>
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+
+    const environmentName = sanitize(environmentNameInput) || 'env';
+    const resourceNamePrefix = sanitize(`dify-${environmentName}`) || 'dify';
+
+    const buildName = (suffix: string, maxLength: number) => {
+      const sanitizedSuffix = sanitize(suffix);
+      const combined = sanitize([resourceNamePrefix, sanitizedSuffix].filter((part) => part.length > 0).join('-'));
+      const truncated = combined.slice(0, maxLength).replace(/-+$/g, '');
+      return (truncated || combined || resourceNamePrefix).slice(0, maxLength);
+    };
+
+    const buildBucketName = (suffix: string) => {
+      let candidate = buildName(suffix, 63);
+      if (candidate.length < 3) {
+        candidate = `${resourceNamePrefix}`.padEnd(3, '0').slice(0, 63);
+      }
+      return candidate;
+    };
 
     if (props.vpcId && (props.vpcIsolated != null || props.useNatInstance != null)) {
       throw new Error(
@@ -88,6 +115,7 @@ export class DifyOnAwsStack extends cdk.Stack {
     });
 
     const accessLogBucket = new Bucket(this, 'AccessLogBucket', {
+      bucketName: buildBucketName('access-logs'),
       enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       objectOwnership: ObjectOwnership.OBJECT_WRITER,
@@ -97,20 +125,23 @@ export class DifyOnAwsStack extends cdk.Stack {
     const cluster = new Cluster(this, 'Cluster', {
       vpc,
       containerInsightsV2: ContainerInsights.ENABLED,
+      clusterName: buildName('cluster', 255),
     });
 
     const postgres = new Postgres(this, 'Postgres', {
       vpc,
       scalesToZero: props.enableAuroraScalesToZero ?? false,
+      resourceNamePrefix,
     });
 
-    const redis = new Redis(this, 'Redis', { vpc, multiAz: props.isRedisMultiAz ?? true });
+    const redis = new Redis(this, 'Redis', { vpc, multiAz: props.isRedisMultiAz ?? true, resourceNamePrefix });
 
     const storageBucket = new Bucket(this, 'StorageBucket', {
       autoDeleteObjects: true,
       enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      bucketName: buildBucketName('storage'),
     });
 
     const alb = useCloudFront
@@ -158,6 +189,7 @@ export class DifyOnAwsStack extends cdk.Stack {
       additionalEnvironmentVariables: props.additionalEnvironmentVariables,
       autoMigration: true,
       useFargateSpot,
+      resourceNamePrefix,
     });
 
     new WebService(this, 'WebService', {
@@ -167,6 +199,7 @@ export class DifyOnAwsStack extends cdk.Stack {
       customRepository,
       additionalEnvironmentVariables: props.additionalEnvironmentVariables,
       useFargateSpot,
+      resourceNamePrefix,
     });
 
     new cdk.CfnOutput(this, 'DifyUrl', {
