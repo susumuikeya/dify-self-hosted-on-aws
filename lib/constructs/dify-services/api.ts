@@ -427,9 +427,10 @@ export class ApiService extends Construct {
       ],
       enableExecuteCommand: true,
       desiredCount: 1,
-      circuitBreaker: { rollback: true },
       minHealthyPercent: 0,
       maxHealthyPercent: 100,
+      healthCheckGracePeriod: Duration.seconds(120),
+      circuitBreaker: { enable: true, rollback: true },
     });
 
     postgres.connections.allowDefaultPortFrom(service);
