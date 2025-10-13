@@ -44,8 +44,9 @@ export class Postgres extends Construct implements IConnectable {
     const cluster = new rds.DatabaseCluster(this, 'Cluster', {
       engine,
       vpc,
-      serverlessV2MinCapacity: props.scalesToZero ? 0 : 0.5,
-      serverlessV2MaxCapacity: 2.0,
+      // Keep at least 1 ACU (~2 GiB) online for steady 30-user traffic.
+      serverlessV2MinCapacity: props.scalesToZero ? 0 : 1.0,
+      serverlessV2MaxCapacity: 4.0,
       writer: rds.ClusterInstance.serverlessV2(this.writerId, {
         autoMinorVersionUpgrade: true,
         publiclyAccessible: false,
