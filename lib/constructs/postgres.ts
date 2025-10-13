@@ -69,7 +69,7 @@ export class Postgres extends Construct implements IConnectable {
         autoMinorVersionUpgrade: true,
         publiclyAccessible: false,
       }),
-      backupRetention: Duration.days(backupRetentionDays),
+      backup: { retention: Duration.days(backupRetentionDays) },
       defaultDatabaseName: this.databaseName,
       enableDataApi: true,
       storageEncrypted: true,
