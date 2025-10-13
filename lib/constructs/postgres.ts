@@ -23,6 +23,12 @@ export interface PostgresProps {
   scalesToZero: boolean;
 
   /**
+   * Number of days to retain automated backups (1-35 days).
+   * Defaults to the Aurora minimum of 1 day.
+   */
+  backupRetentionDays?: number;
+
+  /**
    * Prefix used to build stable resource identifiers per environment.
    */
   resourceNamePrefix: string;
@@ -42,6 +48,10 @@ export class Postgres extends Construct implements IConnectable {
     super(scope, id);
 
     const { vpc } = props;
+    const backupRetentionDays = props.backupRetentionDays ?? 1;
+    if (backupRetentionDays < 1 || backupRetentionDays > 35) {
+      throw new Error('backupRetentionDays must be between 1 and 35 days.');
+    }
     const engine = rds.DatabaseClusterEngine.auroraPostgres({
       version: rds.AuroraPostgresEngineVersion.VER_15_7,
     });
@@ -59,6 +69,7 @@ export class Postgres extends Construct implements IConnectable {
         autoMinorVersionUpgrade: true,
         publiclyAccessible: false,
       }),
+      backupRetention: Duration.days(backupRetentionDays),
       defaultDatabaseName: this.databaseName,
       enableDataApi: true,
       storageEncrypted: true,

@@ -131,6 +131,7 @@ export class DifyOnAwsStack extends cdk.Stack {
     const postgres = new Postgres(this, 'Postgres', {
       vpc,
       scalesToZero: props.enableAuroraScalesToZero ?? false,
+      backupRetentionDays: props.auroraBackupRetentionDays,
       resourceNamePrefix,
     });
 

@@ -12,6 +12,8 @@ export const props: EnvironmentProps = {
   difyImageTag: '1.9.1',
   // Set plugin-daemon version to stable release
   difyPluginDaemonImageTag: '0.3.1-local',
+  // Set Aurora backup retention period in days (1-35)
+  auroraBackupRetentionDays: 1,
 
   // uncomment the below options for less expensive configuration:
   // isRedisMultiAz: false,

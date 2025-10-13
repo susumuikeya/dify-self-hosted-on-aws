@@ -79,6 +79,13 @@ export interface EnvironmentProps {
   enableAuroraScalesToZero?: boolean;
 
   /**
+   * Number of days to retain automated Aurora PostgreSQL backups.
+   * Must be between 1 and 35 days.
+   * @default 1
+   */
+  auroraBackupRetentionDays?: number;
+
+  /**
    * If enabled, Dify runs on Fargate spot capacity. Note that because Fargate spot can be interrupted,
    * it is recommended to use the option for non-critical use case.
    * @default false
