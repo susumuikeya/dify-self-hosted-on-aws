@@ -57,8 +57,16 @@ export class DifyOnAwsStack extends cdk.Stack {
       return (truncated || combined || resourceNamePrefix).slice(0, maxLength);
     };
 
+    const accountSegment = !cdk.Token.isUnresolved(this.account) ? sanitize(this.account) : undefined;
+    const regionSegment = !cdk.Token.isUnresolved(this.region) ? sanitize(this.region) : undefined;
+    const bucketPrefix = sanitize(
+      [resourceNamePrefix, accountSegment, regionSegment].filter((part) => (part?.length ?? 0) > 0).join('-'),
+    );
+
     const buildBucketName = (suffix: string) => {
-      let candidate = buildName(suffix, 63);
+      const base = bucketPrefix || resourceNamePrefix;
+      let candidate = sanitize([base, suffix].filter((part) => part.length > 0).join('-')).slice(0, 63);
+      candidate = candidate.replace(/-+$/g, '');
       if (candidate.length < 3) {
         candidate = `${resourceNamePrefix}`.padEnd(3, '0').slice(0, 63);
       }
